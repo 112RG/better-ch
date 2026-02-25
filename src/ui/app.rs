@@ -79,7 +79,7 @@ impl TuiApp {
         let selected = views.iter().position(|v| *v == state.current_view).unwrap_or(0);
 
         let tabs = Tabs::new(titles)
-            .block(Block::bordered(Borders::ALL).title("CloudHub Runtime Manager"))
+            .block(Block::bordered().title("CloudHub Runtime Manager"))
             .select(selected)
             .style(Style::default().fg(Color::White))
             .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
@@ -108,20 +108,20 @@ impl TuiApp {
         let stopped = state.applications.iter().filter(|a| a.status == crate::state::AppStatus::Stopped).count();
 
         let summary = Paragraph::new(format!("Total: {} | Running: {} | Stopped: {}", total, running, stopped))
-            .block(Block::bordered(Borders::ALL).title("Overview"));
+            .block(Block::bordered().title("Overview"));
         frame.render_widget(summary, chunks[0]);
 
         let actions = List::new([
             ListItem::new("[s] Start | [x] Stop | [r] Restart | [R] Refresh"),
         ])
-        .block(Block::bordered(Borders::ALL).title("Quick Actions"));
+        .block(Block::bordered().title("Quick Actions"));
         frame.render_widget(actions, chunks[1]);
     }
 
     fn render_apps(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         if state.applications.is_empty() {
             let empty = Paragraph::new("No applications. Press 'R' to refresh.")
-                .block(Block::bordered(Borders::ALL).title("Applications"))
+                .block(Block::bordered().title("Applications"))
                 .alignment(ratatui::layout::Alignment::Center);
             frame.render_widget(empty, area);
             return;
@@ -139,7 +139,7 @@ impl TuiApp {
         }).collect();
 
         let list = List::new(items)
-            .block(Block::bordered(Borders::ALL).title("Applications"))
+            .block(Block::bordered().title("Applications"))
             .highlight_style(Style::default().bg(Color::DarkGray));
         frame.render_widget(list, area);
     }
@@ -149,7 +149,7 @@ impl TuiApp {
             Some(app) => app,
             None => {
                 let no_sel = Paragraph::new("No application selected. Go to Applications tab.")
-                    .block(Block::bordered(Borders::ALL).title("App Details"))
+                    .block(Block::bordered().title("App Details"))
                     .alignment(ratatui::layout::Alignment::Center);
                 frame.render_widget(no_sel, area);
                 return;
@@ -161,12 +161,12 @@ impl TuiApp {
             .constraints([Constraint::Length(3), Constraint::Length(3), Constraint::Min(0)])
             .split(area);
 
-        let name = Paragraph::new(&app.name).block(Block::bordered(Borders::ALL).title("Name"));
+        let name = Paragraph::new(app.name.clone()).block(Block::bordered().title("Name"));
         let status = Paragraph::new(format!("{:?}", app.status))
-            .block(Block::bordered(Borders::ALL).title("Status"));
+            .block(Block::bordered().title("Status"));
         let resources = Paragraph::new(format!("Workers: {} x {}\nCPU: {:.1}%\nRAM: {} MB",
             app.worker_count, app.worker_type, app.cpu_percent, app.memory_mb))
-            .block(Block::bordered(Borders::ALL).title("Resources"));
+            .block(Block::bordered().title("Resources"));
 
         frame.render_widget(name, chunks[0]);
         frame.render_widget(status, chunks[1]);
@@ -176,7 +176,7 @@ impl TuiApp {
     fn render_logs(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         let app_name = state.selected_app().map(|a| a.name.clone()).unwrap_or_else(|| "None".to_string());
         let header = Paragraph::new(format!("Logs for: {}", app_name))
-            .block(Block::bordered(Borders::ALL).title("Application Logs"));
+            .block(Block::bordered().title("Application Logs"));
         frame.render_widget(header, area);
     }
 
@@ -187,11 +187,11 @@ impl TuiApp {
             .split(area);
 
         let platform = Paragraph::new(format!("Platform: {}", state.config.anypoint.platform_url))
-            .block(Block::bordered(Borders::ALL).title("Anypoint Platform"));
+            .block(Block::bordered().title("Anypoint Platform"));
         let env = Paragraph::new(format!("Environment: {}", state.config.anypoint.environment))
-            .block(Block::bordered(Borders::ALL).title("Environment"));
+            .block(Block::bordered().title("Environment"));
         let auth = Paragraph::new(if state.is_authenticated { "✓ Authenticated" } else { "✗ Not authenticated" })
-            .block(Block::bordered(Borders::ALL).title("Authentication"));
+            .block(Block::bordered().title("Authentication"));
 
         frame.render_widget(platform, chunks[0]);
         frame.render_widget(env, chunks[1]);
