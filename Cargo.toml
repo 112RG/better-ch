@@ -3,6 +3,14 @@ name = "better-ch"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "better_ch"
+path = "src/lib.rs"
+
+[[bin]]
+name = "better-ch"
+path = "src/main.rs"
+
 [dependencies]
 # TUI
 crossterm = "0.29.0"
@@ -43,5 +51,8 @@ tokio-tungstenite = "0.26"
 url = "2"
 dirs = "6"
 toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
 
 
