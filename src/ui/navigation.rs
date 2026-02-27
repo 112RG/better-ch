@@ -7,7 +7,7 @@ pub struct Navigation;
 
 impl Navigation {
     /// Handle navigation input.
-    pub fn handle_key(view: View, key: char) -> Option<View> {
+    pub fn handle_key(_view: View, key: char) -> Option<View> {
         match key {
             '1' => Some(View::Dashboard),
             '2' => Some(View::Apps),

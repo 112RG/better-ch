@@ -175,8 +175,8 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
+    
 
     #[test]
     fn test_default_config() {

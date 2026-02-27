@@ -125,7 +125,7 @@ impl Authenticator {
     /// Returns the access token and user info after successful authentication.
     pub async fn login_with_sso(&self) -> Result<(Token, User), Error> {
         // Build authorization URL
-        let (auth_url, code_verifier, state) = self.build_authorization_url();
+        let (auth_url, code_verifier, _state) = self.build_authorization_url();
 
         println!("Opening browser for login...");
         println!("URL: {}", auth_url);
@@ -444,27 +444,6 @@ impl Token {
 
     pub fn authorization(&self) -> String {
         format!("{} {}", self.token_type, self.access_token)
-    }
-}
-
-#[cfg(test)]
-impl Token {
-    /// Create a test token that is not expired.
-    pub fn test_token_not_expired() -> Self {
-        Token {
-            access_token: "test-token".to_string(),
-            expires_at: Utc::now() + Duration::seconds(3600),
-            token_type: "Bearer".to_string(),
-        }
-    }
-
-    /// Create a test token that is expired.
-    pub fn test_token_expired() -> Self {
-        Token {
-            access_token: "expired".to_string(),
-            expires_at: Utc::now() - Duration::seconds(3600),
-            token_type: "Bearer".to_string(),
-        }
     }
 }
 
