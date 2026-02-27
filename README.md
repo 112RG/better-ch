@@ -1,3 +1,5 @@
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/112RG/better-ch?utm_source=oss&utm_medium=github&utm_campaign=112RG%2Fbetter-ch&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+
 # better-ch (Anypoint Runtime Manager - scaffold)
 
 This repository is a scaffold for a Linux-only Rust GUI application that will connect to the Anypoint Platform (MuleSoft) to manage runtimes.
