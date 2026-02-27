@@ -124,19 +124,28 @@ mod tests {
     #[test]
     fn test_error_display_auth() {
         let err = Error::Auth(AuthError::TokenExpired);
-        assert_eq!(format!("{}", err), "authentication error: token expired, please re-authenticate");
+        assert_eq!(
+            format!("{}", err),
+            "authentication error: token expired, please re-authenticate"
+        );
     }
 
     #[test]
     fn test_error_display_api() {
         let err = Error::Api(ApiError::NotFound("app-name".to_string()));
-        assert_eq!(format!("{}", err), "API error: application not found: app-name");
+        assert_eq!(
+            format!("{}", err),
+            "API error: application not found: app-name"
+        );
     }
 
     #[test]
     fn test_error_display_config() {
         let err = Error::Config(ConfigError::Missing("client_id".to_string()));
-        assert_eq!(format!("{}", err), "configuration error: missing configuration: client_id");
+        assert_eq!(
+            format!("{}", err),
+            "configuration error: missing configuration: client_id"
+        );
     }
 
     #[test]
@@ -150,7 +159,10 @@ mod tests {
     #[test]
     fn test_auth_error_variants() {
         let err = AuthError::TokenFetch("network error".to_string());
-        assert_eq!(format!("{}", err), "failed to obtain access token: network error");
+        assert_eq!(
+            format!("{}", err),
+            "failed to obtain access token: network error"
+        );
 
         let err = AuthError::InvalidCredentials;
         assert_eq!(format!("{}", err), "invalid credentials");
@@ -176,7 +188,10 @@ mod tests {
         let err = ApiError::NotFound("my-app".to_string());
         assert_eq!(format!("{}", err), "application not found: my-app");
 
-        let err = ApiError::ServerError { status: 500, message: "Internal error".to_string() };
+        let err = ApiError::ServerError {
+            status: 500,
+            message: "Internal error".to_string(),
+        };
         assert_eq!(format!("{}", err), "server error (500): Internal error");
     }
 
@@ -195,7 +210,10 @@ mod tests {
     #[test]
     fn test_ui_error_variants() {
         let err = UiError::TerminalInit("no terminal".to_string());
-        assert_eq!(format!("{}", err), "failed to initialize terminal: no terminal");
+        assert_eq!(
+            format!("{}", err),
+            "failed to initialize terminal: no terminal"
+        );
 
         let err = UiError::Render("draw error".to_string());
         assert_eq!(format!("{}", err), "render error: draw error");

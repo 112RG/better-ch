@@ -1,10 +1,10 @@
 //! Logs view.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
 use crate::state::AppState;
@@ -15,7 +15,8 @@ pub fn render_logs(frame: &mut Frame, area: Rect, state: &AppState) {
         .constraints([Constraint::Length(3), Constraint::Min(0)])
         .split(area);
 
-    let app_name = state.selected_app()
+    let app_name = state
+        .selected_app()
         .map(|a| a.name.clone())
         .unwrap_or_else(|| "No application".to_string());
 

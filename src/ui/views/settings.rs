@@ -1,10 +1,10 @@
 //! Settings view.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     widgets::{Block, Paragraph},
-    Frame,
 };
 
 use crate::state::AppState;
@@ -21,11 +21,17 @@ pub fn render_settings(frame: &mut Frame, area: Rect, state: &AppState) {
         ])
         .split(area);
 
-    let platform = Paragraph::new(format!("Platform URL: {}", state.config.anypoint.platform_url))
-        .block(Block::bordered().title("Anypoint Platform"));
+    let platform = Paragraph::new(format!(
+        "Platform URL: {}",
+        state.config.anypoint.platform_url
+    ))
+    .block(Block::bordered().title("Anypoint Platform"));
 
-    let env = Paragraph::new(format!("Environment: {}", state.config.anypoint.environment))
-        .block(Block::bordered().title("Environment"));
+    let env = Paragraph::new(format!(
+        "Environment: {}",
+        state.config.anypoint.environment
+    ))
+    .block(Block::bordered().title("Environment"));
 
     // Authentication status with login button hint
     let (auth_status, auth_hint) = if state.is_authenticated {
@@ -33,7 +39,11 @@ pub fn render_settings(frame: &mut Frame, area: Rect, state: &AppState) {
     } else {
         ("✗ Not authenticated", "Press [L] to login with SSO")
     };
-    let auth_color = if state.is_authenticated { Color::Green } else { Color::Yellow };
+    let auth_color = if state.is_authenticated {
+        Color::Green
+    } else {
+        Color::Yellow
+    };
     let auth = Paragraph::new(format!("{}\n{}", auth_status, auth_hint))
         .block(Block::bordered().title("Authentication"))
         .style(Style::default().fg(auth_color));
@@ -54,7 +64,11 @@ pub fn render_settings(frame: &mut Frame, area: Rect, state: &AppState) {
         "Refresh Interval: {} seconds\nLog Buffer Size: {} lines\nDebug Mode: {}",
         state.config.ui.refresh_interval,
         state.config.ui.log_buffer_size,
-        if state.config.ui.debug { "Enabled" } else { "Disabled" }
+        if state.config.ui.debug {
+            "Enabled"
+        } else {
+            "Disabled"
+        }
     ))
     .block(Block::bordered().title("UI Settings"));
 

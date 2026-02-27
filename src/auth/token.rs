@@ -73,7 +73,9 @@ mod tests {
         // Either succeeds or fails due to keyring unavailability
         // Both are acceptable for this test
         if let Err(e) = &result {
-            assert!(format!("{:?}", e).contains("Auth") || format!("{:?}", e).contains("TokenStorage"));
+            assert!(
+                format!("{:?}", e).contains("Auth") || format!("{:?}", e).contains("TokenStorage")
+            );
         }
     }
 }

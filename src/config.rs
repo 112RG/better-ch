@@ -107,8 +107,7 @@ impl Config {
         let content = std::fs::read_to_string(&path)
             .map_err(|e| Error::Config(ConfigError::File(e.to_string())))?;
 
-        toml::from_str(&content)
-            .map_err(|e| Error::Config(ConfigError::Invalid(e.to_string())))
+        toml::from_str(&content).map_err(|e| Error::Config(ConfigError::Invalid(e.to_string())))
     }
 
     /// Save configuration to file.
@@ -182,7 +181,10 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.anypoint.platform_url, "https://anypoint.mulesoft.com");
+        assert_eq!(
+            config.anypoint.platform_url,
+            "https://anypoint.mulesoft.com"
+        );
         assert_eq!(config.anypoint.environment, "production");
         assert!(config.anypoint.business_group_id.is_none());
         assert_eq!(config.ui.refresh_interval, 30);
@@ -217,7 +219,10 @@ debug = true
         let config = Config::load(&config_path).unwrap();
 
         assert_eq!(config.anypoint.platform_url, "https://custom.example.com");
-        assert_eq!(config.anypoint.business_group_id, Some("test-org".to_string()));
+        assert_eq!(
+            config.anypoint.business_group_id,
+            Some("test-org".to_string())
+        );
         assert_eq!(config.anypoint.environment, "sandbox");
         assert_eq!(config.ui.refresh_interval, 60);
         assert_eq!(config.ui.log_buffer_size, 500);
@@ -249,7 +254,10 @@ debug = true
 
         let loaded = Config::load(&config_path).unwrap();
         assert_eq!(loaded.anypoint.platform_url, "https://saved.example.com");
-        assert_eq!(loaded.anypoint.business_group_id, Some("saved-org".to_string()));
+        assert_eq!(
+            loaded.anypoint.business_group_id,
+            Some("saved-org".to_string())
+        );
         assert!(loaded.ui.debug);
     }
 

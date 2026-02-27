@@ -1,7 +1,7 @@
 //! OAuth2 authentication for Anypoint Platform.
 //! Supports authorization code flow with PKCE for SSO login.
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -177,7 +177,10 @@ impl Authenticator {
 
         let addr = format!("127.0.0.1:{}", self.port);
         let listener = TcpListener::bind(&addr).map_err(|e| {
-            Error::Auth(AuthError::TokenFetch(format!("Failed to bind to port {}: {}", self.port, e)))
+            Error::Auth(AuthError::TokenFetch(format!(
+                "Failed to bind to port {}: {}",
+                self.port, e
+            )))
         })?;
 
         println!("Waiting for OAuth callback on http://{}...", addr);
@@ -187,7 +190,10 @@ impl Authenticator {
 
         // Wait for incoming connection
         let (stream, _) = listener.accept().map_err(|e| {
-            Error::Auth(AuthError::TokenFetch(format!("Failed to accept connection: {}", e)))
+            Error::Auth(AuthError::TokenFetch(format!(
+                "Failed to accept connection: {}",
+                e
+            )))
         })?;
 
         let reader = BufReader::new(stream);
@@ -438,6 +444,49 @@ impl Token {
 
     pub fn authorization(&self) -> String {
         format!("{} {}", self.token_type, self.access_token)
+    }
+}
+
+#[cfg(test)]
+impl Token {
+    /// Create a test token that is not expired.
+    pub fn test_token_not_expired() -> Self {
+        Token {
+            access_token: "test-token".to_string(),
+            expires_at: Utc::now() + Duration::seconds(3600),
+            token_type: "Bearer".to_string(),
+        }
+    }
+
+    /// Create a test token that is expired.
+    pub fn test_token_expired() -> Self {
+        Token {
+            access_token: "expired".to_string(),
+            expires_at: Utc::now() - Duration::seconds(3600),
+            token_type: "Bearer".to_string(),
+        }
+    }
+}
+
+/// Lightweight helpers used by tests to construct tokens.
+impl Token {
+    /// Create a token expiring `seconds_from_now` seconds from now.
+    pub fn new_with_expiry(access_token: impl Into<String>, seconds_from_now: i64) -> Self {
+        Token {
+            access_token: access_token.into(),
+            expires_at: Utc::now() + Duration::seconds(seconds_from_now),
+            token_type: "Bearer".to_string(),
+        }
+    }
+
+    /// Convenience: token not expired (1 hour)
+    pub fn test_token_not_expired() -> Self {
+        Self::new_with_expiry("test-token", 3600)
+    }
+
+    /// Convenience: expired token (-1 hour)
+    pub fn test_token_expired() -> Self {
+        Self::new_with_expiry("expired", -3600)
     }
 }
 

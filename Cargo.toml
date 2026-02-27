@@ -54,5 +54,7 @@ toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
+httpmock = "0.7"
+tokio = { version = "1", features = ["full"], package = "tokio" }
 
 

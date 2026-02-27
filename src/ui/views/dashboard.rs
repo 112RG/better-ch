@@ -1,10 +1,10 @@
 //! Dashboard view.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Borders, Paragraph, List, ListItem},
-    Frame,
+    widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
 use crate::state::AppState;
@@ -21,9 +21,21 @@ pub fn render_dashboard(frame: &mut Frame, area: Rect, state: &AppState) {
 
 fn render_summary(frame: &mut Frame, area: Rect, state: &AppState) {
     let total = state.applications.len();
-    let running = state.applications.iter().filter(|a| a.status == crate::state::AppStatus::Started).count();
-    let stopped = state.applications.iter().filter(|a| a.status == crate::state::AppStatus::Stopped).count();
-    let failed = state.applications.iter().filter(|a| a.status == crate::state::AppStatus::Failed).count();
+    let running = state
+        .applications
+        .iter()
+        .filter(|a| a.status == crate::state::AppStatus::Started)
+        .count();
+    let stopped = state
+        .applications
+        .iter()
+        .filter(|a| a.status == crate::state::AppStatus::Stopped)
+        .count();
+    let failed = state
+        .applications
+        .iter()
+        .filter(|a| a.status == crate::state::AppStatus::Failed)
+        .count();
 
     let content = format!(
         "  Total Applications: {}\n  Running: {}\n  Stopped: {}\n  Failed: {}",
