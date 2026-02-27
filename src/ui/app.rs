@@ -54,123 +54,116 @@ impl TuiApp {
             drop(state);
 
             use ratatui::crossterm::event::KeyCode;
-            if let Ok(event) = ratatui::crossterm::event::read() {
-                if let ratatui::crossterm::event::Event::Key(key) = event {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => break,
-                        KeyCode::Char('1') => {
-                            self.state.blocking_lock().current_view = View::Dashboard
+            if let Ok(event) = ratatui::crossterm::event::read()
+                && let ratatui::crossterm::event::Event::Key(key) = event
+            {
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => break,
+                    KeyCode::Char('1') => self.state.blocking_lock().current_view = View::Dashboard,
+                    KeyCode::Char('2') => self.state.blocking_lock().current_view = View::Apps,
+                    KeyCode::Char('3') => self.state.blocking_lock().current_view = View::AppDetail,
+                    KeyCode::Char('4') => self.state.blocking_lock().current_view = View::Logs,
+                    KeyCode::Char('5') => self.state.blocking_lock().current_view = View::Settings,
+                    KeyCode::Tab => self.state.blocking_lock().next_view(),
+                    KeyCode::BackTab => self.state.blocking_lock().prev_view(),
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let mut s = self.state.blocking_lock();
+                        if s.selected_app_index < s.applications.len().saturating_sub(1) {
+                            s.selected_app_index += 1;
                         }
-                        KeyCode::Char('2') => self.state.blocking_lock().current_view = View::Apps,
-                        KeyCode::Char('3') => {
-                            self.state.blocking_lock().current_view = View::AppDetail
-                        }
-                        KeyCode::Char('4') => self.state.blocking_lock().current_view = View::Logs,
-                        KeyCode::Char('5') => {
-                            self.state.blocking_lock().current_view = View::Settings
-                        }
-                        KeyCode::Tab => self.state.blocking_lock().next_view(),
-                        KeyCode::BackTab => self.state.blocking_lock().prev_view(),
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            let mut s = self.state.blocking_lock();
-                            if s.selected_app_index < s.applications.len().saturating_sub(1) {
-                                s.selected_app_index += 1;
-                            }
-                        }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            let mut s = self.state.blocking_lock();
-                            if s.selected_app_index > 0 {
-                                s.selected_app_index -= 1;
-                            }
-                        }
-                        KeyCode::Char('l') | KeyCode::Char('L') => {
-                            // Login/Logout - handle in Settings view
-                            // Get config first, then release lock
-                            let (is_settings, config) = {
-                                let s = self.state.blocking_lock();
-                                (s.current_view == View::Settings, s.config.clone())
-                            };
-
-                            if is_settings {
-                                // Get credentials from config
-                                let client_id =
-                                    config.anypoint.client_id.clone().unwrap_or_default();
-                                let client_secret =
-                                    config.anypoint.client_secret.clone().unwrap_or_default();
-
-                                if client_id.is_empty() || client_secret.is_empty() {
-                                    let mut s = self.state.blocking_lock();
-                                    s.error_message = Some("Missing client_id or client_secret. Configure via config file or environment variables.".to_string());
-                                    continue;
-                                }
-
-                                // Run OAuth login using the runtime
-                                let result = self.runtime.block_on(async {
-                                    let auth = Authenticator::new(
-                                        &config.anypoint.platform_url,
-                                        &client_id,
-                                        &client_secret,
-                                    )?;
-
-                                    // Build and open the authorization URL
-                                    let (auth_url, code_verifier, _state) =
-                                        auth.build_authorization_url();
-
-                                    println!("Opening browser for login...");
-                                    println!("URL: {}", auth_url);
-
-                                    // Open browser
-                                    #[cfg(target_os = "windows")]
-                                    {
-                                        std::process::Command::new("cmd")
-                                            .args(["/c", "start", "", &auth_url])
-                                            .spawn()
-                                            .ok();
-                                    }
-                                    #[cfg(target_os = "macos")]
-                                    {
-                                        std::process::Command::new("open")
-                                            .arg(&auth_url)
-                                            .spawn()
-                                            .ok();
-                                    }
-                                    #[cfg(target_os = "linux")]
-                                    {
-                                        std::process::Command::new("xdg-open")
-                                            .arg(&auth_url)
-                                            .spawn()
-                                            .ok();
-                                    }
-
-                                    // Wait for callback
-                                    let code = auth.wait_for_callback()?;
-
-                                    // Exchange code for token
-                                    let token =
-                                        auth.exchange_code_for_token(&code, &code_verifier).await?;
-
-                                    // Get user info
-                                    let user: User = auth.get_current_user(&token).await?;
-
-                                    Ok::<_, Error>((token, user))
-                                });
-
-                                match result {
-                                    Ok((_token, user)) => {
-                                        let mut s = self.state.blocking_lock();
-                                        s.is_authenticated = true;
-                                        s.error_message =
-                                            Some(format!("Logged in as: {}", user.display_name()));
-                                    }
-                                    Err(e) => {
-                                        let mut s = self.state.blocking_lock();
-                                        s.error_message = Some(format!("Login failed: {}", e));
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
                     }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        let mut s = self.state.blocking_lock();
+                        if s.selected_app_index > 0 {
+                            s.selected_app_index -= 1;
+                        }
+                    }
+                    KeyCode::Char('l') | KeyCode::Char('L') => {
+                        // Login/Logout - handle in Settings view
+                        // Get config first, then release lock
+                        let (is_settings, config) = {
+                            let s = self.state.blocking_lock();
+                            (s.current_view == View::Settings, s.config.clone())
+                        };
+
+                        if is_settings {
+                            // Get credentials from config
+                            let client_id = config.anypoint.client_id.clone().unwrap_or_default();
+                            let client_secret =
+                                config.anypoint.client_secret.clone().unwrap_or_default();
+
+                            if client_id.is_empty() || client_secret.is_empty() {
+                                let mut s = self.state.blocking_lock();
+                                s.error_message = Some("Missing client_id or client_secret. Configure via config file or environment variables.".to_string());
+                                continue;
+                            }
+
+                            // Run OAuth login using the runtime
+                            let result = self.runtime.block_on(async {
+                                let auth = Authenticator::new(
+                                    &config.anypoint.platform_url,
+                                    &client_id,
+                                    &client_secret,
+                                )?;
+
+                                // Build and open the authorization URL
+                                let (auth_url, code_verifier, _state) =
+                                    auth.build_authorization_url();
+
+                                println!("Opening browser for login...");
+                                println!("URL: {}", auth_url);
+
+                                // Open browser
+                                #[cfg(target_os = "windows")]
+                                {
+                                    std::process::Command::new("cmd")
+                                        .args(["/c", "start", "", &auth_url])
+                                        .spawn()
+                                        .ok();
+                                }
+                                #[cfg(target_os = "macos")]
+                                {
+                                    std::process::Command::new("open")
+                                        .arg(&auth_url)
+                                        .spawn()
+                                        .ok();
+                                }
+                                #[cfg(target_os = "linux")]
+                                {
+                                    std::process::Command::new("xdg-open")
+                                        .arg(&auth_url)
+                                        .spawn()
+                                        .ok();
+                                }
+
+                                // Wait for callback
+                                let code = auth.wait_for_callback()?;
+
+                                // Exchange code for token
+                                let token =
+                                    auth.exchange_code_for_token(&code, &code_verifier).await?;
+
+                                // Get user info
+                                let user: User = auth.get_current_user(&token).await?;
+
+                                Ok::<_, Error>((token, user))
+                            });
+
+                            match result {
+                                Ok((_token, user)) => {
+                                    let mut s = self.state.blocking_lock();
+                                    s.is_authenticated = true;
+                                    s.error_message =
+                                        Some(format!("Logged in as: {}", user.display_name()));
+                                }
+                                Err(e) => {
+                                    let mut s = self.state.blocking_lock();
+                                    s.error_message = Some(format!("Login failed: {}", e));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }

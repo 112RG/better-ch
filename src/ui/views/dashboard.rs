@@ -50,7 +50,7 @@ fn render_summary(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn render_quick_actions(frame: &mut Frame, area: Rect, _state: &AppState) {
-    let actions = vec![
+    let actions = [
         "[s] Start Application",
         "[x] Stop Application",
         "[r] Restart Application",

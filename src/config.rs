@@ -10,21 +10,13 @@ use crate::error::{ConfigError, Error};
 /// Application configuration.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub struct Config {
     /// Anypoint Platform configuration.
     pub anypoint: AnypointConfig,
 
     /// UI configuration.
     pub ui: UiConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            anypoint: AnypointConfig::default(),
-            ui: UiConfig::default(),
-        }
-    }
 }
 
 /// Anypoint Platform configuration.

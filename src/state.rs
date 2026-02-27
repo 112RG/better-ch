@@ -96,9 +96,18 @@ pub enum AppStatus {
 }
 
 impl AppStatus {
-    /// Parse status from string.
+    /// Parse status from string (convenience wrapper).
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
-        match s.to_uppercase().as_str() {
+        s.parse().unwrap_or(Self::Unknown)
+    }
+}
+
+impl std::str::FromStr for AppStatus {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_uppercase().as_str() {
             "STARTED" => Self::Started,
             "STARTING" => Self::Starting,
             "STOPPED" => Self::Stopped,
@@ -106,7 +115,7 @@ impl AppStatus {
             "UNDEPLOYED" => Self::Undeployed,
             "FAILED" => Self::Failed,
             _ => Self::Unknown,
-        }
+        })
     }
 }
 

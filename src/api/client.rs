@@ -52,7 +52,7 @@ impl CloudHubClient {
         let token = self
             .token
             .as_ref()
-            .ok_or_else(|| Error::Auth(crate::error::AuthError::TokenExpired))?;
+            .ok_or(Error::Auth(crate::error::AuthError::TokenExpired))?;
         let url = format!("{}{}", self.base_url, path);
 
         let response = self
@@ -94,7 +94,7 @@ impl CloudHubClient {
         let token = self
             .token
             .as_ref()
-            .ok_or_else(|| Error::Auth(crate::error::AuthError::TokenExpired))?;
+            .ok_or(Error::Auth(crate::error::AuthError::TokenExpired))?;
         let url = format!("{}{}", self.base_url, path);
 
         let response = self

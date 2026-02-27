@@ -45,10 +45,10 @@ impl Authenticator {
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = port;
         // Update redirect URI to match the port
-        if let Some(host) = self.redirect_uri.strip_prefix("http://127.0.0.1:") {
-            if let Some(_path) = host.strip_prefix('/') {
-                self.redirect_uri = format!("http://127.0.0.1:{}/callback", port);
-            }
+        if let Some(host) = self.redirect_uri.strip_prefix("http://127.0.0.1:")
+            && let Some(_path) = host.strip_prefix('/')
+        {
+            self.redirect_uri = format!("http://127.0.0.1:{}/callback", port);
         }
         self
     }
@@ -207,16 +207,16 @@ impl Authenticator {
         println!("Received callback: {}", request_line);
 
         // Parse the URL to get the code parameter
-        if let Some(query) = request_line.split_whitespace().nth(1) {
-            if query.starts_with("/callback?") {
-                let query_string = query.trim_start_matches("/callback?");
-                for param in query_string.split('&') {
-                    let parts: Vec<&str> = param.splitn(2, '=').collect();
-                    if parts.len() == 2 && parts[0] == "code" {
-                        return Ok(urlencoding::decode(parts[1])
-                            .map_err(|e| Error::Auth(AuthError::TokenFetch(e.to_string())))?
-                            .to_string());
-                    }
+        if let Some(query) = request_line.split_whitespace().nth(1)
+            && query.starts_with("/callback?")
+        {
+            let query_string = query.trim_start_matches("/callback?");
+            for param in query_string.split('&') {
+                let parts: Vec<&str> = param.splitn(2, '=').collect();
+                if parts.len() == 2 && parts[0] == "code" {
+                    return Ok(urlencoding::decode(parts[1])
+                        .map_err(|e| Error::Auth(AuthError::TokenFetch(e.to_string())))?
+                        .to_string());
                 }
             }
         }
