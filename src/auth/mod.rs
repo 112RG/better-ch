@@ -5,5 +5,5 @@
 pub mod oauth;
 pub mod token;
 
-pub use oauth::Authenticator;
+pub use oauth::{Authenticator, User};
 pub use token::TokenStore;

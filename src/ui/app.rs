@@ -4,24 +4,47 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Modifier},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Tabs},
+    widgets::{Block, List, ListItem, Paragraph, Tabs},
     Frame, Terminal,
 };
 use std::io;
+use std::panic;
+use crossterm::{
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
+    ExecutableCommand,
+};
 
+use crate::auth::{Authenticator, User};
+use crate::error::Error;
 use crate::state::{AppState, SharedState, View};
+use crate::ui::views::settings::render_settings;
+use tokio::runtime::Runtime;
 
 /// Main TUI application.
 pub struct TuiApp {
     pub state: SharedState,
+    pub runtime: Runtime,
 }
 
 impl TuiApp {
-    pub fn new(state: SharedState) -> Self {
-        Self { state }
+    pub fn new(state: SharedState, runtime: Runtime) -> Self {
+        Self { state, runtime }
     }
 
     pub fn run(&mut self) -> io::Result<()> {
+        // Set up panic hook to restore terminal on crash
+        let original_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |panic_info| {
+            // Try to restore terminal
+            let _ = std::io::stdout().execute(LeaveAlternateScreen);
+            let _ = disable_raw_mode();
+            original_hook(panic_info);
+        }));
+
+        // Enable raw mode and alternate screen
+        std::io::stdout().execute(EnterAlternateScreen)?;
+        enable_raw_mode()?;
+
         let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
         terminal.clear()?;
 
@@ -54,11 +77,82 @@ impl TuiApp {
                                 s.selected_app_index -= 1;
                             }
                         }
+                        KeyCode::Char('l') | KeyCode::Char('L') => {
+                            // Login/Logout - handle in Settings view
+                            // Get config first, then release lock
+                            let (is_settings, config) = {
+                                let s = self.state.blocking_lock();
+                                (s.current_view == View::Settings, s.config.clone())
+                            };
+
+                            if is_settings {
+                                // Get credentials from config
+                                let client_id = config.anypoint.client_id.clone().unwrap_or_default();
+                                let client_secret = config.anypoint.client_secret.clone().unwrap_or_default();
+                                
+                                if client_id.is_empty() || client_secret.is_empty() {
+                                    let mut s = self.state.blocking_lock();
+                                    s.error_message = Some("Missing client_id or client_secret. Configure via config file or environment variables.".to_string());
+                                    continue;
+                                }
+                                
+                                // Run OAuth login using the runtime
+                                let result = self.runtime.block_on(async {
+                                    let auth = Authenticator::new(
+                                        &config.anypoint.platform_url,
+                                        &client_id,
+                                        &client_secret,
+                                    )?;
+                                    
+                                    // Build and open the authorization URL
+                                    let (auth_url, code_verifier, _state) = auth.build_authorization_url();
+                                    
+                                    println!("Opening browser for login...");
+                                    println!("URL: {}", auth_url);
+                                    
+                                    // Open browser
+                                    #[cfg(target_os = "windows")]
+                                    { std::process::Command::new("cmd").args(["/c", "start", "", &auth_url]).spawn().ok(); }
+                                    #[cfg(target_os = "macos")]
+                                    { std::process::Command::new("open").arg(&auth_url).spawn().ok(); }
+                                    #[cfg(target_os = "linux")]
+                                    { std::process::Command::new("xdg-open").arg(&auth_url).spawn().ok(); }
+                                    
+                                    // Wait for callback
+                                    let code = auth.wait_for_callback()?;
+                                    
+                                    // Exchange code for token
+                                    let token = auth.exchange_code_for_token(&code, &code_verifier).await?;
+                                    
+                                    // Get user info
+                                    let user: User = auth.get_current_user(&token).await?;
+                                    
+                                    Ok::<_, Error>((token, user))
+                                });
+                                
+                                match result {
+                                    Ok((_token, user)) => {
+                                        let mut s = self.state.blocking_lock();
+                                        s.is_authenticated = true;
+                                        s.error_message = Some(format!("Logged in as: {}", user.display_name()));
+                                    }
+                                    Err(e) => {
+                                        let mut s = self.state.blocking_lock();
+                                        s.error_message = Some(format!("Login failed: {}", e));
+                                    }
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }
             }
         }
+
+        // Restore terminal on exit
+        let _ = std::io::stdout().execute(LeaveAlternateScreen);
+        let _ = disable_raw_mode();
+
         Ok(())
     }
 
@@ -93,7 +187,7 @@ impl TuiApp {
             View::Apps => self.render_apps(frame, area, state),
             View::AppDetail => self.render_app_detail(frame, area, state),
             View::Logs => self.render_logs(frame, area, state),
-            View::Settings => self.render_settings(frame, area, state),
+            View::Settings => render_settings(frame, area, state),
         }
     }
 
@@ -178,24 +272,6 @@ impl TuiApp {
         let header = Paragraph::new(format!("Logs for: {}", app_name))
             .block(Block::bordered().title("Application Logs"));
         frame.render_widget(header, area);
-    }
-
-    fn render_settings(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(3), Constraint::Length(3), Constraint::Min(0)])
-            .split(area);
-
-        let platform = Paragraph::new(format!("Platform: {}", state.config.anypoint.platform_url))
-            .block(Block::bordered().title("Anypoint Platform"));
-        let env = Paragraph::new(format!("Environment: {}", state.config.anypoint.environment))
-            .block(Block::bordered().title("Environment"));
-        let auth = Paragraph::new(if state.is_authenticated { "✓ Authenticated" } else { "✗ Not authenticated" })
-            .block(Block::bordered().title("Authentication"));
-
-        frame.render_widget(platform, chunks[0]);
-        frame.render_widget(env, chunks[1]);
-        frame.render_widget(auth, chunks[2]);
     }
 
     fn render_status_bar(&self, frame: &mut Frame, area: Rect, state: &AppState) {
