@@ -107,37 +107,54 @@ impl TuiApp {
                                 )?;
 
                                 // Build and open the authorization URL
-                                let (auth_url, code_verifier, _state) =
+                                let (auth_url, code_verifier, state) =
                                     auth.build_authorization_url();
 
-                                println!("Opening browser for login...");
-                                println!("URL: {}", auth_url);
+                                tracing::info!("Opening browser for login...");
+                                tracing::info!("URL: {}", auth_url);
 
                                 // Open browser
                                 #[cfg(target_os = "windows")]
                                 {
-                                    std::process::Command::new("cmd")
+                                    if let Err(e) = std::process::Command::new("cmd")
                                         .args(["/c", "start", "", &auth_url])
                                         .spawn()
-                                        .ok();
+                                    {
+                                        tracing::warn!(
+                                            "Failed to open browser automatically: {}. Open this URL manually: {}",
+                                            e,
+                                            auth_url
+                                        );
+                                    }
                                 }
                                 #[cfg(target_os = "macos")]
                                 {
-                                    std::process::Command::new("open")
-                                        .arg(&auth_url)
-                                        .spawn()
-                                        .ok();
+                                    if let Err(e) =
+                                        std::process::Command::new("open").arg(&auth_url).spawn()
+                                    {
+                                        tracing::warn!(
+                                            "Failed to open browser automatically: {}. Open this URL manually: {}",
+                                            e,
+                                            auth_url
+                                        );
+                                    }
                                 }
                                 #[cfg(target_os = "linux")]
                                 {
-                                    std::process::Command::new("xdg-open")
+                                    if let Err(e) = std::process::Command::new("xdg-open")
                                         .arg(&auth_url)
                                         .spawn()
-                                        .ok();
+                                    {
+                                        tracing::warn!(
+                                            "Failed to open browser automatically: {}. Open this URL manually: {}",
+                                            e,
+                                            auth_url
+                                        );
+                                    }
                                 }
 
                                 // Wait for callback
-                                let code = auth.wait_for_callback()?;
+                                let code = auth.wait_for_callback(&state)?;
 
                                 // Exchange code for token
                                 let token =

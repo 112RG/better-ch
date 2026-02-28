@@ -124,54 +124,62 @@ impl Authenticator {
     ///
     /// Returns the access token and user info after successful authentication.
     pub async fn login_with_sso(&self) -> Result<(Token, User), Error> {
-        // Build authorization URL
-        let (auth_url, code_verifier, _state) = self.build_authorization_url();
+        let (auth_url, code_verifier, state) = self.build_authorization_url();
 
-        println!("Opening browser for login...");
-        println!("URL: {}", auth_url);
+        tracing::info!("Opening browser for login...");
+        tracing::info!("URL: {}", auth_url);
 
         // Open browser
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new("cmd")
+            if let Err(e) = std::process::Command::new("cmd")
                 .args(["/c", "start", "", &auth_url])
                 .spawn()
-                .ok();
+            {
+                tracing::warn!(
+                    "Failed to open browser automatically: {}. Open this URL manually: {}",
+                    e,
+                    auth_url
+                );
+            }
         }
         #[cfg(target_os = "macos")]
         {
-            std::process::Command::new("open")
-                .arg(&auth_url)
-                .spawn()
-                .ok();
+            if let Err(e) = std::process::Command::new("open").arg(&auth_url).spawn() {
+                tracing::warn!(
+                    "Failed to open browser automatically: {}. Open this URL manually: {}",
+                    e,
+                    auth_url
+                );
+            }
         }
         #[cfg(target_os = "linux")]
         {
-            std::process::Command::new("xdg-open")
-                .arg(&auth_url)
-                .spawn()
-                .ok();
+            if let Err(e) = std::process::Command::new("xdg-open").arg(&auth_url).spawn() {
+                tracing::warn!(
+                    "Failed to open browser automatically: {}. Open this URL manually: {}",
+                    e,
+                    auth_url
+                );
+            }
         }
 
-        // Wait for callback
-        let code = self.wait_for_callback()?;
+        let code = self.wait_for_callback(&state)?;
 
-        // Verify state (in production, you'd want to verify this matches)
-        println!("Received authorization code, exchanging for token...");
+        tracing::info!("Received authorization code, exchanging for token...");
 
-        // Exchange code for token
         let token = self.exchange_code_for_token(&code, &code_verifier).await?;
-
-        // Get user info
         let user = self.get_current_user(&token).await?;
 
-        println!("Successfully logged in as: {}", user.display_name());
+        tracing::info!("Successfully logged in as: {}", user.display_name());
 
         Ok((token, user))
     }
 
-    /// Wait for the OAuth callback on the local server
-    pub fn wait_for_callback(&self) -> Result<String, Error> {
+    /// Wait for the OAuth callback on the local server.
+    ///
+    /// Validates the `state` parameter against `expected_state` to prevent CSRF attacks.
+    pub fn wait_for_callback(&self, expected_state: &str) -> Result<String, Error> {
         use std::io::{BufRead, BufReader};
         use std::net::TcpListener;
 
@@ -183,18 +191,31 @@ impl Authenticator {
             )))
         })?;
 
-        println!("Waiting for OAuth callback on http://{}...", addr);
+        // Time out after 2 minutes if the browser never redirects.
+        listener
+            .set_nonblocking(true)
+            .map_err(|e| Error::Auth(AuthError::TokenFetch(format!("Failed to set non-blocking: {}", e))))?;
 
-        // Set non-blocking with timeout
-        listener.set_nonblocking(false).ok();
-
-        // Wait for incoming connection
-        let (stream, _) = listener.accept().map_err(|e| {
-            Error::Auth(AuthError::TokenFetch(format!(
-                "Failed to accept connection: {}",
-                e
-            )))
-        })?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        let (stream, _) = loop {
+            match listener.accept() {
+                Ok(conn) => break conn,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(Error::Auth(AuthError::TokenFetch(
+                            "OAuth callback timed out after 2 minutes".to_string(),
+                        )));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(e) => {
+                    return Err(Error::Auth(AuthError::TokenFetch(format!(
+                        "Failed to accept connection: {}",
+                        e
+                    ))));
+                }
+            }
+        };
 
         let reader = BufReader::new(stream);
         let mut lines = reader.lines();
@@ -204,20 +225,48 @@ impl Authenticator {
             Error::Auth(AuthError::TokenFetch("Failed to read request".to_string()))
         })??;
 
-        println!("Received callback: {}", request_line);
+        tracing::info!("Received callback: {}", request_line);
 
-        // Parse the URL to get the code parameter
+        // Parse the URL to extract code and state parameters
         if let Some(query) = request_line.split_whitespace().nth(1)
             && query.starts_with("/callback?")
         {
             let query_string = query.trim_start_matches("/callback?");
+            let mut code: Option<String> = None;
+            let mut received_state: Option<String> = None;
+
             for param in query_string.split('&') {
                 let parts: Vec<&str> = param.splitn(2, '=').collect();
-                if parts.len() == 2 && parts[0] == "code" {
-                    return Ok(urlencoding::decode(parts[1])
-                        .map_err(|e| Error::Auth(AuthError::TokenFetch(e.to_string())))?
-                        .to_string());
+                if parts.len() == 2 {
+                    match parts[0] {
+                        "code" => {
+                            code = Some(
+                                urlencoding::decode(parts[1])
+                                    .map_err(|e| Error::Auth(AuthError::TokenFetch(e.to_string())))?
+                                    .to_string(),
+                            );
+                        }
+                        "state" => {
+                            received_state = Some(
+                                urlencoding::decode(parts[1])
+                                    .map_err(|e| Error::Auth(AuthError::TokenFetch(e.to_string())))?
+                                    .to_string(),
+                            );
+                        }
+                        _ => {}
+                    }
                 }
+            }
+
+            // CSRF check: received state must match the state we generated
+            if received_state.as_deref() != Some(expected_state) {
+                return Err(Error::Auth(AuthError::TokenFetch(
+                    "OAuth state mismatch: possible CSRF attack".to_string(),
+                )));
+            }
+
+            if let Some(c) = code {
+                return Ok(c);
             }
         }
 

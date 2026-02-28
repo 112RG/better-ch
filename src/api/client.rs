@@ -16,17 +16,24 @@ pub struct CloudHubClient {
 }
 
 impl CloudHubClient {
-    pub fn new(base_url: &str) -> Self {
+    /// Create a new `CloudHubClient` targeting the given base URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` if the underlying HTTP client cannot be constructed
+    /// (e.g. TLS initialization failure).
+    pub fn new(base_url: &str) -> Result<Self, Error> {
+        /// Default HTTP request timeout in seconds.
+        const HTTP_REQUEST_TIMEOUT_SECS: u64 = 30;
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(HTTP_REQUEST_TIMEOUT_SECS))
             .build()
-            .expect("failed to create HTTP client");
-
-        Self {
+            .map_err(|e| Error::Api(ApiError::Request(e.to_string())))?;
+        Ok(Self {
             client,
             base_url: base_url.to_string(),
             token: None,
-        }
+        })
     }
 
     pub fn set_token(&mut self, token: Token) {
@@ -44,22 +51,17 @@ impl CloudHubClient {
             .unwrap_or(false)
     }
 
-    async fn request<T: DeserializeOwned>(
+    /// Send a pre-built request and deserialize the response body.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` for HTTP failures, non-success status codes, or deserialization errors.
+    async fn execute_request<T: DeserializeOwned>(
         &self,
-        method: reqwest::Method,
+        builder: reqwest::RequestBuilder,
         path: &str,
     ) -> Result<T, Error> {
-        let token = self
-            .token
-            .as_ref()
-            .ok_or(Error::Auth(crate::error::AuthError::TokenExpired))?;
-        let url = format!("{}{}", self.base_url, path);
-
-        let response = self
-            .client
-            .request(method, &url)
-            .header("Authorization", token.authorization())
-            .header("Content-Type", "application/json")
+        let response = builder
             .send()
             .await
             .map_err(|e| Error::Api(ApiError::Request(e.to_string())))?;
@@ -85,6 +87,28 @@ impl CloudHubClient {
         }
     }
 
+    /// Send an authenticated GET/DELETE/POST request without a body.
+    async fn request<T: DeserializeOwned>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+    ) -> Result<T, Error> {
+        let token = self
+            .token
+            .as_ref()
+            .ok_or(Error::Auth(crate::error::AuthError::TokenExpired))?;
+        let url = format!("{}{}", self.base_url, path);
+
+        let builder = self
+            .client
+            .request(method, &url)
+            .header("Authorization", token.authorization())
+            .header("Content-Type", "application/json");
+
+        self.execute_request(builder, path).await
+    }
+
+    /// Send an authenticated request with a JSON body.
     async fn request_with_body<T: DeserializeOwned, B: serde::Serialize>(
         &self,
         method: reqwest::Method,
@@ -97,35 +121,14 @@ impl CloudHubClient {
             .ok_or(Error::Auth(crate::error::AuthError::TokenExpired))?;
         let url = format!("{}{}", self.base_url, path);
 
-        let response = self
+        let builder = self
             .client
             .request(method, &url)
             .header("Authorization", token.authorization())
             .header("Content-Type", "application/json")
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| Error::Api(ApiError::Request(e.to_string())))?;
+            .json(body);
 
-        let status = response.status();
-
-        if status.is_success() {
-            response
-                .json()
-                .await
-                .map_err(|e| Error::Api(ApiError::Request(e.to_string())))
-        } else if status.as_u16() == 404 {
-            Err(Error::Api(ApiError::NotFound(path.to_string())))
-        } else {
-            let message = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            Err(Error::Api(ApiError::ServerError {
-                status: status.as_u16(),
-                message,
-            }))
-        }
+        self.execute_request(builder, path).await
     }
 
     // Applications API

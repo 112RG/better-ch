@@ -110,13 +110,6 @@ pub enum UiError {
     InvalidInput(String),
 }
 
-// Implement anyhow::Context for convenient error handling.
-impl<T> From<Error> for anyhow::Result<T> {
-    fn from(err: Error) -> Self {
-        Err(err.into())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

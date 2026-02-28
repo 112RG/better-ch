@@ -53,10 +53,7 @@ pub fn render_settings(frame: &mut Frame, area: Rect, state: &AppState) {
          • ANYPOINT_CLIENT_ID - OAuth2 client ID\n\
          • ANYPOINT_CLIENT_SECRET - OAuth2 client secret\n\
          • ANYPOINT_PLATFORM_URL - Platform URL\n\
-         • ANYPOINT_ENVIRONMENT - Environment name\n\n\
-         Or use the VSCode extension credentials:\n\
-         client_id: a7db79120339458da2d7ba979ee94a42\n\
-         client_secret: 339A336DA32446dFb8B2945400E607B8",
+         • ANYPOINT_ENVIRONMENT - Environment name",
     )
     .block(Block::bordered().title("Configuration"));
 

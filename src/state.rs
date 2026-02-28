@@ -95,13 +95,6 @@ pub enum AppStatus {
     Unknown,
 }
 
-impl AppStatus {
-    /// Parse status from string (convenience wrapper).
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        s.parse().unwrap_or(Self::Unknown)
-    }
-}
 
 impl std::str::FromStr for AppStatus {
     type Err = ();
@@ -233,45 +226,45 @@ mod tests {
 
         #[test]
         fn test_from_str_started() {
-            assert_eq!(AppStatus::from_str("started"), AppStatus::Started);
-            assert_eq!(AppStatus::from_str("STARTED"), AppStatus::Started);
+            assert_eq!("started".parse().unwrap_or(AppStatus::Unknown), AppStatus::Started);
+            assert_eq!("STARTED".parse().unwrap_or(AppStatus::Unknown), AppStatus::Started);
         }
 
         #[test]
         fn test_from_str_starting() {
-            assert_eq!(AppStatus::from_str("starting"), AppStatus::Starting);
-            assert_eq!(AppStatus::from_str("STARTING"), AppStatus::Starting);
+            assert_eq!("starting".parse().unwrap_or(AppStatus::Unknown), AppStatus::Starting);
+            assert_eq!("STARTING".parse().unwrap_or(AppStatus::Unknown), AppStatus::Starting);
         }
 
         #[test]
         fn test_from_str_stopped() {
-            assert_eq!(AppStatus::from_str("stopped"), AppStatus::Stopped);
-            assert_eq!(AppStatus::from_str("STOPPED"), AppStatus::Stopped);
+            assert_eq!("stopped".parse().unwrap_or(AppStatus::Unknown), AppStatus::Stopped);
+            assert_eq!("STOPPED".parse().unwrap_or(AppStatus::Unknown), AppStatus::Stopped);
         }
 
         #[test]
         fn test_from_str_stopping() {
-            assert_eq!(AppStatus::from_str("stopping"), AppStatus::Stopping);
-            assert_eq!(AppStatus::from_str("STOPPING"), AppStatus::Stopping);
+            assert_eq!("stopping".parse().unwrap_or(AppStatus::Unknown), AppStatus::Stopping);
+            assert_eq!("STOPPING".parse().unwrap_or(AppStatus::Unknown), AppStatus::Stopping);
         }
 
         #[test]
         fn test_from_str_undeployed() {
-            assert_eq!(AppStatus::from_str("undeployed"), AppStatus::Undeployed);
-            assert_eq!(AppStatus::from_str("UNDEPLOYED"), AppStatus::Undeployed);
+            assert_eq!("undeployed".parse().unwrap_or(AppStatus::Unknown), AppStatus::Undeployed);
+            assert_eq!("UNDEPLOYED".parse().unwrap_or(AppStatus::Unknown), AppStatus::Undeployed);
         }
 
         #[test]
         fn test_from_str_failed() {
-            assert_eq!(AppStatus::from_str("failed"), AppStatus::Failed);
-            assert_eq!(AppStatus::from_str("FAILED"), AppStatus::Failed);
+            assert_eq!("failed".parse().unwrap_or(AppStatus::Unknown), AppStatus::Failed);
+            assert_eq!("FAILED".parse().unwrap_or(AppStatus::Unknown), AppStatus::Failed);
         }
 
         #[test]
         fn test_from_str_unknown() {
-            assert_eq!(AppStatus::from_str("unknown"), AppStatus::Unknown);
-            assert_eq!(AppStatus::from_str("random"), AppStatus::Unknown);
-            assert_eq!(AppStatus::from_str(""), AppStatus::Unknown);
+            assert_eq!("unknown".parse().unwrap_or(AppStatus::Unknown), AppStatus::Unknown);
+            assert_eq!("random".parse().unwrap_or(AppStatus::Unknown), AppStatus::Unknown);
+            assert_eq!("".parse().unwrap_or(AppStatus::Unknown), AppStatus::Unknown);
         }
     }
 
@@ -308,7 +301,8 @@ mod tests {
 
         fn create_test_state() -> AppState {
             let config = Config::default();
-            let client = CloudHubClient::new("https://test.example.com");
+            let client =
+                CloudHubClient::new("https://test.example.com").expect("failed to create HTTP client");
             AppState::new(config, client)
         }
 
