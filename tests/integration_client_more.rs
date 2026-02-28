@@ -33,7 +33,7 @@ async fn client_start_stop_restart() {
     });
 
     let base = format!("http://{}", server.address());
-    let mut client = CloudHubClient::new(&base);
+    let mut client = CloudHubClient::new(&base).expect("failed to create client");
     client.set_token(Token::test_token_not_expired());
 
     let start = client.start_application("test-app").await.expect("start");
@@ -66,7 +66,7 @@ async fn client_get_application_logs_with_limit() {
     });
 
     let base = format!("http://{}", server.address());
-    let mut client = CloudHubClient::new(&base);
+    let mut client = CloudHubClient::new(&base).expect("failed to create client");
     client.set_token(Token::test_token_not_expired());
 
     let logs = client
@@ -91,7 +91,7 @@ async fn client_list_deployments() {
     });
 
     let base = format!("http://{}", server.address());
-    let mut client = CloudHubClient::new(&base);
+    let mut client = CloudHubClient::new(&base).expect("failed to create client");
     client.set_token(Token::test_token_not_expired());
 
     let deps = client

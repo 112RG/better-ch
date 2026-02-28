@@ -18,6 +18,8 @@ pub struct Authenticator {
     redirect_uri: String,
     /// Callback server port
     port: u16,
+    /// Reusable HTTP client for token exchange and user info requests
+    http_client: reqwest::Client,
 }
 
 impl Authenticator {
@@ -32,6 +34,7 @@ impl Authenticator {
             client_secret: client_secret.into(),
             redirect_uri: "http://127.0.0.1:8082/callback".to_string(),
             port: 8082,
+            http_client: reqwest::Client::new(),
         })
     }
 
@@ -44,10 +47,8 @@ impl Authenticator {
     /// Set custom port (default: 8082)
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = port;
-        // Update redirect URI to match the port
-        if let Some(host) = self.redirect_uri.strip_prefix("http://127.0.0.1:")
-            && let Some(_path) = host.strip_prefix('/')
-        {
+        // Keep the redirect URI in sync with the port when using a local loopback address.
+        if self.redirect_uri.starts_with("http://127.0.0.1:") {
             self.redirect_uri = format!("http://127.0.0.1:{}/callback", port);
         }
         self
@@ -55,18 +56,14 @@ impl Authenticator {
 
     /// Generate PKCE code verifier and challenge
     fn generate_pkce() -> (String, String) {
+        // Byte slice avoids O(n) UTF-8 scanning per character; all chars are ASCII.
+        const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         let mut rng = rand::thread_rng();
         let verifier: String = (0..32)
-            .map(|_| {
-                let idx = rng.gen_range(0..62);
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-                    .chars()
-                    .nth(idx)
-                    .unwrap()
-            })
+            .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
             .collect();
 
-        // Generate code_challenge from code_verifier
+        // Derive code_challenge = BASE64URL(SHA256(code_verifier)) per RFC 7636.
         let mut hasher = Sha256::new();
         hasher.update(verifier.as_bytes());
         let hash = hasher.finalize();
@@ -77,15 +74,10 @@ impl Authenticator {
 
     /// Generate a random state parameter for CSRF protection
     fn generate_state() -> String {
+        const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         let mut rng = rand::thread_rng();
         (0..32)
-            .map(|_| {
-                let idx = rng.gen_range(0..62);
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-                    .chars()
-                    .nth(idx)
-                    .unwrap()
-            })
+            .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
             .collect()
     }
 
@@ -155,7 +147,10 @@ impl Authenticator {
         }
         #[cfg(target_os = "linux")]
         {
-            if let Err(e) = std::process::Command::new("xdg-open").arg(&auth_url).spawn() {
+            if let Err(e) = std::process::Command::new("xdg-open")
+                .arg(&auth_url)
+                .spawn()
+            {
                 tracing::warn!(
                     "Failed to open browser automatically: {}. Open this URL manually: {}",
                     e,
@@ -192,9 +187,12 @@ impl Authenticator {
         })?;
 
         // Time out after 2 minutes if the browser never redirects.
-        listener
-            .set_nonblocking(true)
-            .map_err(|e| Error::Auth(AuthError::TokenFetch(format!("Failed to set non-blocking: {}", e))))?;
+        listener.set_nonblocking(true).map_err(|e| {
+            Error::Auth(AuthError::TokenFetch(format!(
+                "Failed to set non-blocking: {}",
+                e
+            )))
+        })?;
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
         let (stream, _) = loop {
@@ -281,7 +279,6 @@ impl Authenticator {
         code: &str,
         code_verifier: &str,
     ) -> Result<Token, Error> {
-        let client = reqwest::Client::new();
         let token_url = format!("{}/accounts/api/v2/oauth2/token", self.platform_url);
 
         let params = [
@@ -293,7 +290,8 @@ impl Authenticator {
             ("code_verifier", code_verifier),
         ];
 
-        let response = client
+        let response = self
+            .http_client
             .post(&token_url)
             .form(&params)
             .send()
@@ -325,7 +323,6 @@ impl Authenticator {
 
     /// Exchange client credentials for an access token (non-SSO).
     pub async fn get_token(&self) -> Result<Token, Error> {
-        let client = reqwest::Client::new();
         let token_url = format!("{}/accounts/api/v2/oauth2/token", self.platform_url);
 
         let params = [
@@ -334,7 +331,8 @@ impl Authenticator {
             ("client_secret", &self.client_secret),
         ];
 
-        let response = client
+        let response = self
+            .http_client
             .post(&token_url)
             .form(&params)
             .send()
@@ -372,7 +370,6 @@ impl Authenticator {
         username: &str,
         password: &str,
     ) -> Result<Token, Error> {
-        let client = reqwest::Client::new();
         let token_url = format!("{}/accounts/api/v2/oauth2/token", self.platform_url);
 
         let params = [
@@ -383,7 +380,8 @@ impl Authenticator {
             ("client_secret", &self.client_secret),
         ];
 
-        let response = client
+        let response = self
+            .http_client
             .post(&token_url)
             .form(&params)
             .send()
@@ -416,10 +414,10 @@ impl Authenticator {
     /// Get the current user info using the access token.
     /// This tells you WHO is using the app.
     pub async fn get_current_user(&self, token: &Token) -> Result<User, Error> {
-        let client = reqwest::Client::new();
         let user_url = format!("{}/accounts/api/me", self.platform_url);
 
-        let response = client
+        let response = self
+            .http_client
             .get(&user_url)
             .header("Authorization", token.authorization())
             .send()
@@ -520,10 +518,7 @@ impl Token {
 
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
-    #[serde(rename = "access_token")]
     access_token: String,
-    #[serde(rename = "token_type")]
     token_type: String,
-    #[serde(rename = "expires_in")]
     expires_in: u64,
 }

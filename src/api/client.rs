@@ -36,14 +36,17 @@ impl CloudHubClient {
         })
     }
 
+    /// Set the authentication token used for subsequent API requests.
     pub fn set_token(&mut self, token: Token) {
         self.token = Some(token);
     }
 
+    /// Return a reference to the current token, if any.
     pub fn token(&self) -> Option<&Token> {
         self.token.as_ref()
     }
 
+    /// Return `true` if a non-expired token is present.
     pub fn is_authenticated(&self) -> bool {
         self.token
             .as_ref()
@@ -132,6 +135,12 @@ impl CloudHubClient {
     }
 
     // Applications API
+
+    /// List all deployed applications.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Auth` if not authenticated, or `Error::Api` on HTTP/JSON failure.
     pub async fn list_applications(&self) -> Result<Vec<Application>, Error> {
         #[derive(Deserialize)]
         struct Response {
@@ -141,11 +150,21 @@ impl CloudHubClient {
         Ok(response.data.unwrap_or_default())
     }
 
+    /// Retrieve a single application by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api(ApiError::NotFound)` if the application does not exist.
     pub async fn get_application(&self, name: &str) -> Result<Application, Error> {
         self.request(reqwest::Method::GET, &format!("/applications/{}", name))
             .await
     }
 
+    /// Deploy a new application.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` on HTTP or JSON failure.
     pub async fn create_application(
         &self,
         request: CreateApplicationRequest,
@@ -154,6 +173,11 @@ impl CloudHubClient {
             .await
     }
 
+    /// Update an existing application's configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api(ApiError::NotFound)` if the application does not exist.
     pub async fn update_application(
         &self,
         name: &str,
@@ -167,6 +191,11 @@ impl CloudHubClient {
         .await
     }
 
+    /// Undeploy and permanently delete an application.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api(ApiError::NotFound)` if the application does not exist.
     pub async fn delete_application(&self, name: &str) -> Result<(), Error> {
         let _response: StatusResponse = self
             .request(reqwest::Method::DELETE, &format!("/applications/{}", name))
@@ -174,6 +203,11 @@ impl CloudHubClient {
         Ok(())
     }
 
+    /// Start a stopped application.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` on HTTP failure or if the application is not found.
     pub async fn start_application(&self, name: &str) -> Result<StatusResponse, Error> {
         self.request(
             reqwest::Method::POST,
@@ -182,6 +216,11 @@ impl CloudHubClient {
         .await
     }
 
+    /// Stop a running application.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` on HTTP failure or if the application is not found.
     pub async fn stop_application(&self, name: &str) -> Result<StatusResponse, Error> {
         self.request(
             reqwest::Method::POST,
@@ -190,6 +229,11 @@ impl CloudHubClient {
         .await
     }
 
+    /// Restart a running application.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` on HTTP failure or if the application is not found.
     pub async fn restart_application(&self, name: &str) -> Result<StatusResponse, Error> {
         self.request(
             reqwest::Method::POST,
@@ -199,6 +243,12 @@ impl CloudHubClient {
     }
 
     // Statistics API
+
+    /// Retrieve runtime statistics for an application.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` on HTTP failure or if the application is not found.
     pub async fn get_application_stats(&self, name: &str) -> Result<ApplicationStats, Error> {
         self.request(
             reqwest::Method::GET,
@@ -208,6 +258,17 @@ impl CloudHubClient {
     }
 
     // Logs API
+
+    /// Retrieve log entries for an application.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Application name
+    /// * `limit` - Maximum number of log entries to return; `None` uses the server default
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` on HTTP failure or if the application is not found.
     pub async fn get_application_logs(
         &self,
         name: &str,
@@ -226,6 +287,12 @@ impl CloudHubClient {
     }
 
     // Deployments API
+
+    /// List all deployments for an application.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` on HTTP failure or if the application is not found.
     pub async fn list_deployments(&self, name: &str) -> Result<Vec<Deployment>, Error> {
         #[derive(Deserialize)]
         struct Response {
@@ -241,6 +308,12 @@ impl CloudHubClient {
     }
 
     // Instances API
+
+    /// List all running instances of an application.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` on HTTP failure or if the application is not found.
     pub async fn list_instances(&self, name: &str) -> Result<Vec<Instance>, Error> {
         #[derive(Deserialize)]
         struct Response {
@@ -256,6 +329,12 @@ impl CloudHubClient {
     }
 
     // Alerts API
+
+    /// List all configured alerts.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Api` on HTTP failure.
     pub async fn list_alerts(&self) -> Result<Vec<Alert>, Error> {
         #[derive(Deserialize)]
         struct Response {

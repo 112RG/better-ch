@@ -18,12 +18,8 @@ async fn client_list_applications_success() {
     });
 
     let base = format!("http://{}", server.address());
-    let client = CloudHubClient::new(&base);
-
-    // Provide a valid token (use a Token with is_expired = false)
-    let token = Token::test_token_not_expired();
-    let mut client = client;
-    client.set_token(token);
+    let mut client = CloudHubClient::new(&base).expect("failed to create client");
+    client.set_token(Token::test_token_not_expired());
 
     let apps = client.list_applications().await.expect("list apps");
     assert_eq!(apps.len(), 1);
@@ -41,7 +37,7 @@ async fn client_requires_authentication() {
     });
 
     let base = format!("http://{}", server.address());
-    let client = CloudHubClient::new(&base);
+    let client = CloudHubClient::new(&base).expect("failed to create client");
 
     // No token set: should return AuthError::TokenExpired via Error::Auth
     let res = client.list_applications().await;
