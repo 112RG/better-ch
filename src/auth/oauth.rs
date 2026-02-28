@@ -1,7 +1,7 @@
 //! OAuth2 authentication for Anypoint Platform.
 //! Supports authorization code flow with PKCE for SSO login.
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,8 @@ pub struct Authenticator {
     redirect_uri: String,
     /// Callback server port
     port: u16,
+    /// Reusable HTTP client for token exchange and user info requests
+    http_client: reqwest::Client,
 }
 
 impl Authenticator {
@@ -32,6 +34,7 @@ impl Authenticator {
             client_secret: client_secret.into(),
             redirect_uri: "http://127.0.0.1:8082/callback".to_string(),
             port: 8082,
+            http_client: reqwest::Client::new(),
         })
     }
 
@@ -44,29 +47,23 @@ impl Authenticator {
     /// Set custom port (default: 8082)
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = port;
-        // Update redirect URI to match the port
-        if let Some(host) = self.redirect_uri.strip_prefix("http://127.0.0.1:") {
-            if let Some(_path) = host.strip_prefix('/') {
-                self.redirect_uri = format!("http://127.0.0.1:{}/callback", port);
-            }
+        // Keep the redirect URI in sync with the port when using a local loopback address.
+        if self.redirect_uri.starts_with("http://127.0.0.1:") {
+            self.redirect_uri = format!("http://127.0.0.1:{}/callback", port);
         }
         self
     }
 
     /// Generate PKCE code verifier and challenge
     fn generate_pkce() -> (String, String) {
+        // Byte slice avoids O(n) UTF-8 scanning per character; all chars are ASCII.
+        const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         let mut rng = rand::thread_rng();
         let verifier: String = (0..32)
-            .map(|_| {
-                let idx = rng.gen_range(0..62);
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-                    .chars()
-                    .nth(idx)
-                    .unwrap()
-            })
+            .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
             .collect();
 
-        // Generate code_challenge from code_verifier
+        // Derive code_challenge = BASE64URL(SHA256(code_verifier)) per RFC 7636.
         let mut hasher = Sha256::new();
         hasher.update(verifier.as_bytes());
         let hash = hasher.finalize();
@@ -77,15 +74,10 @@ impl Authenticator {
 
     /// Generate a random state parameter for CSRF protection
     fn generate_state() -> String {
+        const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         let mut rng = rand::thread_rng();
         (0..32)
-            .map(|_| {
-                let idx = rng.gen_range(0..62);
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-                    .chars()
-                    .nth(idx)
-                    .unwrap()
-            })
+            .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
             .collect()
     }
 
@@ -124,71 +116,104 @@ impl Authenticator {
     ///
     /// Returns the access token and user info after successful authentication.
     pub async fn login_with_sso(&self) -> Result<(Token, User), Error> {
-        // Build authorization URL
         let (auth_url, code_verifier, state) = self.build_authorization_url();
 
-        println!("Opening browser for login...");
-        println!("URL: {}", auth_url);
+        tracing::info!("Opening browser for login...");
+        tracing::info!("URL: {}", auth_url);
 
         // Open browser
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new("cmd")
+            if let Err(e) = std::process::Command::new("cmd")
                 .args(["/c", "start", "", &auth_url])
                 .spawn()
-                .ok();
+            {
+                tracing::warn!(
+                    "Failed to open browser automatically: {}. Open this URL manually: {}",
+                    e,
+                    auth_url
+                );
+            }
         }
         #[cfg(target_os = "macos")]
         {
-            std::process::Command::new("open")
-                .arg(&auth_url)
-                .spawn()
-                .ok();
+            if let Err(e) = std::process::Command::new("open").arg(&auth_url).spawn() {
+                tracing::warn!(
+                    "Failed to open browser automatically: {}. Open this URL manually: {}",
+                    e,
+                    auth_url
+                );
+            }
         }
         #[cfg(target_os = "linux")]
         {
-            std::process::Command::new("xdg-open")
+            if let Err(e) = std::process::Command::new("xdg-open")
                 .arg(&auth_url)
                 .spawn()
-                .ok();
+            {
+                tracing::warn!(
+                    "Failed to open browser automatically: {}. Open this URL manually: {}",
+                    e,
+                    auth_url
+                );
+            }
         }
 
-        // Wait for callback
-        let code = self.wait_for_callback()?;
+        let code = self.wait_for_callback(&state)?;
 
-        // Verify state (in production, you'd want to verify this matches)
-        println!("Received authorization code, exchanging for token...");
+        tracing::info!("Received authorization code, exchanging for token...");
 
-        // Exchange code for token
         let token = self.exchange_code_for_token(&code, &code_verifier).await?;
-
-        // Get user info
         let user = self.get_current_user(&token).await?;
 
-        println!("Successfully logged in as: {}", user.display_name());
+        tracing::info!("Successfully logged in as: {}", user.display_name());
 
         Ok((token, user))
     }
 
-    /// Wait for the OAuth callback on the local server
-    pub fn wait_for_callback(&self) -> Result<String, Error> {
+    /// Wait for the OAuth callback on the local server.
+    ///
+    /// Validates the `state` parameter against `expected_state` to prevent CSRF attacks.
+    pub fn wait_for_callback(&self, expected_state: &str) -> Result<String, Error> {
         use std::io::{BufRead, BufReader};
         use std::net::TcpListener;
 
         let addr = format!("127.0.0.1:{}", self.port);
         let listener = TcpListener::bind(&addr).map_err(|e| {
-            Error::Auth(AuthError::TokenFetch(format!("Failed to bind to port {}: {}", self.port, e)))
+            Error::Auth(AuthError::TokenFetch(format!(
+                "Failed to bind to port {}: {}",
+                self.port, e
+            )))
         })?;
 
-        println!("Waiting for OAuth callback on http://{}...", addr);
-
-        // Set non-blocking with timeout
-        listener.set_nonblocking(false).ok();
-
-        // Wait for incoming connection
-        let (stream, _) = listener.accept().map_err(|e| {
-            Error::Auth(AuthError::TokenFetch(format!("Failed to accept connection: {}", e)))
+        // Time out after 2 minutes if the browser never redirects.
+        listener.set_nonblocking(true).map_err(|e| {
+            Error::Auth(AuthError::TokenFetch(format!(
+                "Failed to set non-blocking: {}",
+                e
+            )))
         })?;
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        let (stream, _) = loop {
+            match listener.accept() {
+                Ok(conn) => break conn,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(Error::Auth(AuthError::TokenFetch(
+                            "OAuth callback timed out after 2 minutes".to_string(),
+                        )));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(e) => {
+                    return Err(Error::Auth(AuthError::TokenFetch(format!(
+                        "Failed to accept connection: {}",
+                        e
+                    ))));
+                }
+            }
+        };
 
         let reader = BufReader::new(stream);
         let mut lines = reader.lines();
@@ -198,20 +223,48 @@ impl Authenticator {
             Error::Auth(AuthError::TokenFetch("Failed to read request".to_string()))
         })??;
 
-        println!("Received callback: {}", request_line);
+        tracing::info!("Received callback: {}", request_line);
 
-        // Parse the URL to get the code parameter
-        if let Some(query) = request_line.split_whitespace().nth(1) {
-            if query.starts_with("/callback?") {
-                let query_string = query.trim_start_matches("/callback?");
-                for param in query_string.split('&') {
-                    let parts: Vec<&str> = param.splitn(2, '=').collect();
-                    if parts.len() == 2 && parts[0] == "code" {
-                        return Ok(urlencoding::decode(parts[1])
-                            .map_err(|e| Error::Auth(AuthError::TokenFetch(e.to_string())))?
-                            .to_string());
+        // Parse the URL to extract code and state parameters
+        if let Some(query) = request_line.split_whitespace().nth(1)
+            && query.starts_with("/callback?")
+        {
+            let query_string = query.trim_start_matches("/callback?");
+            let mut code: Option<String> = None;
+            let mut received_state: Option<String> = None;
+
+            for param in query_string.split('&') {
+                let parts: Vec<&str> = param.splitn(2, '=').collect();
+                if parts.len() == 2 {
+                    match parts[0] {
+                        "code" => {
+                            code = Some(
+                                urlencoding::decode(parts[1])
+                                    .map_err(|e| Error::Auth(AuthError::TokenFetch(e.to_string())))?
+                                    .to_string(),
+                            );
+                        }
+                        "state" => {
+                            received_state = Some(
+                                urlencoding::decode(parts[1])
+                                    .map_err(|e| Error::Auth(AuthError::TokenFetch(e.to_string())))?
+                                    .to_string(),
+                            );
+                        }
+                        _ => {}
                     }
                 }
+            }
+
+            // CSRF check: received state must match the state we generated
+            if received_state.as_deref() != Some(expected_state) {
+                return Err(Error::Auth(AuthError::TokenFetch(
+                    "OAuth state mismatch: possible CSRF attack".to_string(),
+                )));
+            }
+
+            if let Some(c) = code {
+                return Ok(c);
             }
         }
 
@@ -226,7 +279,6 @@ impl Authenticator {
         code: &str,
         code_verifier: &str,
     ) -> Result<Token, Error> {
-        let client = reqwest::Client::new();
         let token_url = format!("{}/accounts/api/v2/oauth2/token", self.platform_url);
 
         let params = [
@@ -238,7 +290,8 @@ impl Authenticator {
             ("code_verifier", code_verifier),
         ];
 
-        let response = client
+        let response = self
+            .http_client
             .post(&token_url)
             .form(&params)
             .send()
@@ -270,7 +323,6 @@ impl Authenticator {
 
     /// Exchange client credentials for an access token (non-SSO).
     pub async fn get_token(&self) -> Result<Token, Error> {
-        let client = reqwest::Client::new();
         let token_url = format!("{}/accounts/api/v2/oauth2/token", self.platform_url);
 
         let params = [
@@ -279,7 +331,8 @@ impl Authenticator {
             ("client_secret", &self.client_secret),
         ];
 
-        let response = client
+        let response = self
+            .http_client
             .post(&token_url)
             .form(&params)
             .send()
@@ -317,7 +370,6 @@ impl Authenticator {
         username: &str,
         password: &str,
     ) -> Result<Token, Error> {
-        let client = reqwest::Client::new();
         let token_url = format!("{}/accounts/api/v2/oauth2/token", self.platform_url);
 
         let params = [
@@ -328,7 +380,8 @@ impl Authenticator {
             ("client_secret", &self.client_secret),
         ];
 
-        let response = client
+        let response = self
+            .http_client
             .post(&token_url)
             .form(&params)
             .send()
@@ -361,10 +414,10 @@ impl Authenticator {
     /// Get the current user info using the access token.
     /// This tells you WHO is using the app.
     pub async fn get_current_user(&self, token: &Token) -> Result<User, Error> {
-        let client = reqwest::Client::new();
         let user_url = format!("{}/accounts/api/me", self.platform_url);
 
-        let response = client
+        let response = self
+            .http_client
             .get(&user_url)
             .header("Authorization", token.authorization())
             .send()
@@ -441,12 +494,31 @@ impl Token {
     }
 }
 
+/// Lightweight helpers used by tests to construct tokens.
+impl Token {
+    /// Create a token expiring `seconds_from_now` seconds from now.
+    pub fn new_with_expiry(access_token: impl Into<String>, seconds_from_now: i64) -> Self {
+        Token {
+            access_token: access_token.into(),
+            expires_at: Utc::now() + Duration::seconds(seconds_from_now),
+            token_type: "Bearer".to_string(),
+        }
+    }
+
+    /// Convenience: token not expired (1 hour)
+    pub fn test_token_not_expired() -> Self {
+        Self::new_with_expiry("test-token", 3600)
+    }
+
+    /// Convenience: expired token (-1 hour)
+    pub fn test_token_expired() -> Self {
+        Self::new_with_expiry("expired", -3600)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
-    #[serde(rename = "access_token")]
     access_token: String,
-    #[serde(rename = "token_type")]
     token_type: String,
-    #[serde(rename = "expires_in")]
     expires_in: u64,
 }

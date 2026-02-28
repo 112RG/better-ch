@@ -8,8 +8,9 @@ use std::path::PathBuf;
 use crate::error::{ConfigError, Error};
 
 /// Application configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub struct Config {
     /// Anypoint Platform configuration.
     pub anypoint: AnypointConfig,
@@ -18,17 +19,8 @@ pub struct Config {
     pub ui: UiConfig,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            anypoint: AnypointConfig::default(),
-            ui: UiConfig::default(),
-        }
-    }
-}
-
 /// Anypoint Platform configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct AnypointConfig {
     /// Platform URL (e.g., https://anypoint.mulesoft.com).
@@ -62,7 +54,7 @@ impl Default for AnypointConfig {
 }
 
 /// UI configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct UiConfig {
     /// Refresh interval in seconds.
@@ -107,8 +99,7 @@ impl Config {
         let content = std::fs::read_to_string(&path)
             .map_err(|e| Error::Config(ConfigError::File(e.to_string())))?;
 
-        toml::from_str(&content)
-            .map_err(|e| Error::Config(ConfigError::Invalid(e.to_string())))
+        toml::from_str(&content).map_err(|e| Error::Config(ConfigError::Invalid(e.to_string())))
     }
 
     /// Save configuration to file.
@@ -172,3 +163,122 @@ impl Config {
         self.anypoint.client_id.is_some() && self.anypoint.client_secret.is_some()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+        assert_eq!(
+            config.anypoint.platform_url,
+            "https://anypoint.mulesoft.com"
+        );
+        assert_eq!(config.anypoint.environment, "production");
+        assert!(config.anypoint.business_group_id.is_none());
+        assert_eq!(config.ui.refresh_interval, 30);
+        assert_eq!(config.ui.log_buffer_size, 1000);
+        assert!(!config.ui.debug);
+    }
+
+    #[test]
+    fn test_config_load_nonexistent_file() {
+        let config = Config::load("/nonexistent/path/config.toml").unwrap();
+        assert_eq!(config, Config::default());
+    }
+
+    #[test]
+    fn test_config_load_valid_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+
+        let toml_content = r#"
+[anypoint]
+platform-url = "https://custom.example.com"
+business-group-id = "test-org"
+environment = "sandbox"
+
+[ui]
+refresh-interval = 60
+log-buffer-size = 500
+debug = true
+"#;
+        std::fs::write(&config_path, toml_content).unwrap();
+
+        let config = Config::load(&config_path).unwrap();
+
+        assert_eq!(config.anypoint.platform_url, "https://custom.example.com");
+        assert_eq!(
+            config.anypoint.business_group_id,
+            Some("test-org".to_string())
+        );
+        assert_eq!(config.anypoint.environment, "sandbox");
+        assert_eq!(config.ui.refresh_interval, 60);
+        assert_eq!(config.ui.log_buffer_size, 500);
+        assert!(config.ui.debug);
+    }
+
+    #[test]
+    fn test_config_load_invalid_toml() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+
+        std::fs::write(&config_path, "invalid toml content = ").unwrap();
+
+        let result = Config::load(&config_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_save_and_load() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+
+        let mut config = Config::default();
+        config.anypoint.platform_url = "https://saved.example.com".to_string();
+        config.anypoint.business_group_id = Some("saved-org".to_string());
+        config.ui.debug = true;
+
+        config.save(&config_path).unwrap();
+
+        let loaded = Config::load(&config_path).unwrap();
+        assert_eq!(loaded.anypoint.platform_url, "https://saved.example.com");
+        assert_eq!(
+            loaded.anypoint.business_group_id,
+            Some("saved-org".to_string())
+        );
+        assert!(loaded.ui.debug);
+    }
+
+    #[test]
+    fn test_cloudhub_url() {
+        let config = Config::default();
+        assert_eq!(
+            config.cloudhub_url(),
+            "https://anypoint.mulesoft.com/cloudhub/api/v1"
+        );
+
+        let mut config = Config::default();
+        config.anypoint.platform_url = "https://custom.platform.com".to_string();
+        assert_eq!(
+            config.cloudhub_url(),
+            "https://custom.platform.com/cloudhub/api/v1"
+        );
+    }
+
+    #[test]
+    fn test_has_credentials() {
+        let mut config = Config::default();
+        assert!(!config.has_credentials());
+
+        config.anypoint.client_id = Some("test-id".to_string());
+        assert!(!config.has_credentials());
+
+        config.anypoint.client_secret = Some("test-secret".to_string());
+        assert!(config.has_credentials());
+    }
+}
+
+// Rust guideline compliant 2026-02-21

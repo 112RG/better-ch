@@ -54,3 +54,28 @@ impl Default for TokenStore {
         Self::new().expect("failed to create token store")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_token_store_constants() {
+        assert_eq!(SERVICE_NAME, "better-ch");
+        assert_eq!(TOKEN_KEY, "access_token");
+    }
+
+    #[test]
+    fn test_token_store_new() {
+        // This test verifies the constructor works
+        // Note: In actual CI, keyring may not be available
+        let result = TokenStore::new();
+        // Either succeeds or fails due to keyring unavailability
+        // Both are acceptable for this test
+        if let Err(e) = &result {
+            assert!(
+                format!("{:?}", e).contains("Auth") || format!("{:?}", e).contains("TokenStorage")
+            );
+        }
+    }
+}

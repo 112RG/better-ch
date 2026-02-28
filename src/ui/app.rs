@@ -1,18 +1,18 @@
 //! Main TUI application.
 
+use crossterm::{
+    ExecutableCommand,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style, Modifier},
+    style::{Color, Modifier, Style},
     widgets::{Block, List, ListItem, Paragraph, Tabs},
-    Frame, Terminal,
 };
 use std::io;
 use std::panic;
-use crossterm::{
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode},
-    ExecutableCommand,
-};
 
 use crate::auth::{Authenticator, User};
 use crate::error::Error;
@@ -54,97 +54,133 @@ impl TuiApp {
             drop(state);
 
             use ratatui::crossterm::event::KeyCode;
-            if let Ok(event) = ratatui::crossterm::event::read() {
-                if let ratatui::crossterm::event::Event::Key(key) = event {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => break,
-                        KeyCode::Char('1') => self.state.blocking_lock().current_view = View::Dashboard,
-                        KeyCode::Char('2') => self.state.blocking_lock().current_view = View::Apps,
-                        KeyCode::Char('3') => self.state.blocking_lock().current_view = View::AppDetail,
-                        KeyCode::Char('4') => self.state.blocking_lock().current_view = View::Logs,
-                        KeyCode::Char('5') => self.state.blocking_lock().current_view = View::Settings,
-                        KeyCode::Tab => self.state.blocking_lock().next_view(),
-                        KeyCode::BackTab => self.state.blocking_lock().prev_view(),
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            let mut s = self.state.blocking_lock();
-                            if s.selected_app_index < s.applications.len().saturating_sub(1) {
-                                s.selected_app_index += 1;
-                            }
+            if let Ok(event) = ratatui::crossterm::event::read()
+                && let ratatui::crossterm::event::Event::Key(key) = event
+            {
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => break,
+                    KeyCode::Char('1') => self.state.blocking_lock().current_view = View::Dashboard,
+                    KeyCode::Char('2') => self.state.blocking_lock().current_view = View::Apps,
+                    KeyCode::Char('3') => self.state.blocking_lock().current_view = View::AppDetail,
+                    KeyCode::Char('4') => self.state.blocking_lock().current_view = View::Logs,
+                    KeyCode::Char('5') => self.state.blocking_lock().current_view = View::Settings,
+                    KeyCode::Tab => self.state.blocking_lock().next_view(),
+                    KeyCode::BackTab => self.state.blocking_lock().prev_view(),
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let mut s = self.state.blocking_lock();
+                        if s.selected_app_index < s.applications.len().saturating_sub(1) {
+                            s.selected_app_index += 1;
                         }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            let mut s = self.state.blocking_lock();
-                            if s.selected_app_index > 0 {
-                                s.selected_app_index -= 1;
-                            }
-                        }
-                        KeyCode::Char('l') | KeyCode::Char('L') => {
-                            // Login/Logout - handle in Settings view
-                            // Get config first, then release lock
-                            let (is_settings, config) = {
-                                let s = self.state.blocking_lock();
-                                (s.current_view == View::Settings, s.config.clone())
-                            };
-
-                            if is_settings {
-                                // Get credentials from config
-                                let client_id = config.anypoint.client_id.clone().unwrap_or_default();
-                                let client_secret = config.anypoint.client_secret.clone().unwrap_or_default();
-                                
-                                if client_id.is_empty() || client_secret.is_empty() {
-                                    let mut s = self.state.blocking_lock();
-                                    s.error_message = Some("Missing client_id or client_secret. Configure via config file or environment variables.".to_string());
-                                    continue;
-                                }
-                                
-                                // Run OAuth login using the runtime
-                                let result = self.runtime.block_on(async {
-                                    let auth = Authenticator::new(
-                                        &config.anypoint.platform_url,
-                                        &client_id,
-                                        &client_secret,
-                                    )?;
-                                    
-                                    // Build and open the authorization URL
-                                    let (auth_url, code_verifier, _state) = auth.build_authorization_url();
-                                    
-                                    println!("Opening browser for login...");
-                                    println!("URL: {}", auth_url);
-                                    
-                                    // Open browser
-                                    #[cfg(target_os = "windows")]
-                                    { std::process::Command::new("cmd").args(["/c", "start", "", &auth_url]).spawn().ok(); }
-                                    #[cfg(target_os = "macos")]
-                                    { std::process::Command::new("open").arg(&auth_url).spawn().ok(); }
-                                    #[cfg(target_os = "linux")]
-                                    { std::process::Command::new("xdg-open").arg(&auth_url).spawn().ok(); }
-                                    
-                                    // Wait for callback
-                                    let code = auth.wait_for_callback()?;
-                                    
-                                    // Exchange code for token
-                                    let token = auth.exchange_code_for_token(&code, &code_verifier).await?;
-                                    
-                                    // Get user info
-                                    let user: User = auth.get_current_user(&token).await?;
-                                    
-                                    Ok::<_, Error>((token, user))
-                                });
-                                
-                                match result {
-                                    Ok((_token, user)) => {
-                                        let mut s = self.state.blocking_lock();
-                                        s.is_authenticated = true;
-                                        s.error_message = Some(format!("Logged in as: {}", user.display_name()));
-                                    }
-                                    Err(e) => {
-                                        let mut s = self.state.blocking_lock();
-                                        s.error_message = Some(format!("Login failed: {}", e));
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
                     }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        let mut s = self.state.blocking_lock();
+                        if s.selected_app_index > 0 {
+                            s.selected_app_index -= 1;
+                        }
+                    }
+                    KeyCode::Char('l') | KeyCode::Char('L') => {
+                        // Login/Logout - handle in Settings view
+                        // Get config first, then release lock
+                        let (is_settings, config) = {
+                            let s = self.state.blocking_lock();
+                            (s.current_view == View::Settings, s.config.clone())
+                        };
+
+                        if is_settings {
+                            // Get credentials from config
+                            let client_id = config.anypoint.client_id.clone().unwrap_or_default();
+                            let client_secret =
+                                config.anypoint.client_secret.clone().unwrap_or_default();
+
+                            if client_id.is_empty() || client_secret.is_empty() {
+                                let mut s = self.state.blocking_lock();
+                                s.error_message = Some("Missing client_id or client_secret. Configure via config file or environment variables.".to_string());
+                                continue;
+                            }
+
+                            // Run OAuth login using the runtime
+                            let result = self.runtime.block_on(async {
+                                let auth = Authenticator::new(
+                                    &config.anypoint.platform_url,
+                                    &client_id,
+                                    &client_secret,
+                                )?;
+
+                                // Build and open the authorization URL
+                                let (auth_url, code_verifier, state) =
+                                    auth.build_authorization_url();
+
+                                tracing::info!("Opening browser for login...");
+                                tracing::info!("URL: {}", auth_url);
+
+                                // Open browser
+                                #[cfg(target_os = "windows")]
+                                {
+                                    if let Err(e) = std::process::Command::new("cmd")
+                                        .args(["/c", "start", "", &auth_url])
+                                        .spawn()
+                                    {
+                                        tracing::warn!(
+                                            "Failed to open browser automatically: {}. Open this URL manually: {}",
+                                            e,
+                                            auth_url
+                                        );
+                                    }
+                                }
+                                #[cfg(target_os = "macos")]
+                                {
+                                    if let Err(e) =
+                                        std::process::Command::new("open").arg(&auth_url).spawn()
+                                    {
+                                        tracing::warn!(
+                                            "Failed to open browser automatically: {}. Open this URL manually: {}",
+                                            e,
+                                            auth_url
+                                        );
+                                    }
+                                }
+                                #[cfg(target_os = "linux")]
+                                {
+                                    if let Err(e) = std::process::Command::new("xdg-open")
+                                        .arg(&auth_url)
+                                        .spawn()
+                                    {
+                                        tracing::warn!(
+                                            "Failed to open browser automatically: {}. Open this URL manually: {}",
+                                            e,
+                                            auth_url
+                                        );
+                                    }
+                                }
+
+                                // Wait for callback
+                                let code = auth.wait_for_callback(&state)?;
+
+                                // Exchange code for token
+                                let token =
+                                    auth.exchange_code_for_token(&code, &code_verifier).await?;
+
+                                // Get user info
+                                let user: User = auth.get_current_user(&token).await?;
+
+                                Ok::<_, Error>((token, user))
+                            });
+
+                            match result {
+                                Ok((_token, user)) => {
+                                    let mut s = self.state.blocking_lock();
+                                    s.is_authenticated = true;
+                                    s.error_message =
+                                        Some(format!("Logged in as: {}", user.display_name()));
+                                }
+                                Err(e) => {
+                                    let mut s = self.state.blocking_lock();
+                                    s.error_message = Some(format!("Login failed: {}", e));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -159,7 +195,11 @@ impl TuiApp {
     fn render(&self, frame: &mut Frame, state: &AppState) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(3), Constraint::Min(0), Constraint::Length(1)])
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(0),
+                Constraint::Length(1),
+            ])
             .split(frame.area());
 
         self.render_tabs(frame, chunks[0], state);
@@ -168,15 +208,34 @@ impl TuiApp {
     }
 
     fn render_tabs(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        let titles = vec!["Dashboard", "Applications", "App Details", "Logs", "Settings"];
-        let views = [View::Dashboard, View::Apps, View::AppDetail, View::Logs, View::Settings];
-        let selected = views.iter().position(|v| *v == state.current_view).unwrap_or(0);
+        let titles = vec![
+            "Dashboard",
+            "Applications",
+            "App Details",
+            "Logs",
+            "Settings",
+        ];
+        let views = [
+            View::Dashboard,
+            View::Apps,
+            View::AppDetail,
+            View::Logs,
+            View::Settings,
+        ];
+        let selected = views
+            .iter()
+            .position(|v| *v == state.current_view)
+            .unwrap_or(0);
 
         let tabs = Tabs::new(titles)
             .block(Block::bordered().title("CloudHub Runtime Manager"))
             .select(selected)
             .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            );
 
         frame.render_widget(tabs, area);
     }
@@ -198,16 +257,27 @@ impl TuiApp {
             .split(area);
 
         let total = state.applications.len();
-        let running = state.applications.iter().filter(|a| a.status == crate::state::AppStatus::Started).count();
-        let stopped = state.applications.iter().filter(|a| a.status == crate::state::AppStatus::Stopped).count();
+        let running = state
+            .applications
+            .iter()
+            .filter(|a| a.status == crate::state::AppStatus::Started)
+            .count();
+        let stopped = state
+            .applications
+            .iter()
+            .filter(|a| a.status == crate::state::AppStatus::Stopped)
+            .count();
 
-        let summary = Paragraph::new(format!("Total: {} | Running: {} | Stopped: {}", total, running, stopped))
-            .block(Block::bordered().title("Overview"));
+        let summary = Paragraph::new(format!(
+            "Total: {} | Running: {} | Stopped: {}",
+            total, running, stopped
+        ))
+        .block(Block::bordered().title("Overview"));
         frame.render_widget(summary, chunks[0]);
 
-        let actions = List::new([
-            ListItem::new("[s] Start | [x] Stop | [r] Restart | [R] Refresh"),
-        ])
+        let actions = List::new([ListItem::new(
+            "[s] Start | [x] Stop | [r] Restart | [R] Refresh",
+        )])
         .block(Block::bordered().title("Quick Actions"));
         frame.render_widget(actions, chunks[1]);
     }
@@ -221,16 +291,27 @@ impl TuiApp {
             return;
         }
 
-        let items: Vec<ListItem> = state.applications.iter().enumerate().map(|(i, app)| {
-            let status_color = match app.status {
-                crate::state::AppStatus::Started => Color::Green,
-                crate::state::AppStatus::Stopped => Color::Red,
-                _ => Color::White,
-            };
-            let line = format!("{:4} | {:20} | {:10} | CPU: {:5.1}% | RAM: {}MB",
-                i + 1, app.name, format!("{:?}", app.status), app.cpu_percent, app.memory_mb);
-            ListItem::new(line).style(Style::default().fg(status_color))
-        }).collect();
+        let items: Vec<ListItem> = state
+            .applications
+            .iter()
+            .enumerate()
+            .map(|(i, app)| {
+                let status_color = match app.status {
+                    crate::state::AppStatus::Started => Color::Green,
+                    crate::state::AppStatus::Stopped => Color::Red,
+                    _ => Color::White,
+                };
+                let line = format!(
+                    "{:4} | {:20} | {:10} | CPU: {:5.1}% | RAM: {}MB",
+                    i + 1,
+                    app.name,
+                    format!("{:?}", app.status),
+                    app.cpu_percent,
+                    app.memory_mb
+                );
+                ListItem::new(line).style(Style::default().fg(status_color))
+            })
+            .collect();
 
         let list = List::new(items)
             .block(Block::bordered().title("Applications"))
@@ -252,15 +333,21 @@ impl TuiApp {
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(3), Constraint::Length(3), Constraint::Min(0)])
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Min(0),
+            ])
             .split(area);
 
         let name = Paragraph::new(app.name.clone()).block(Block::bordered().title("Name"));
-        let status = Paragraph::new(format!("{:?}", app.status))
-            .block(Block::bordered().title("Status"));
-        let resources = Paragraph::new(format!("Workers: {} x {}\nCPU: {:.1}%\nRAM: {} MB",
-            app.worker_count, app.worker_type, app.cpu_percent, app.memory_mb))
-            .block(Block::bordered().title("Resources"));
+        let status =
+            Paragraph::new(format!("{:?}", app.status)).block(Block::bordered().title("Status"));
+        let resources = Paragraph::new(format!(
+            "Workers: {} x {}\nCPU: {:.1}%\nRAM: {} MB",
+            app.worker_count, app.worker_type, app.cpu_percent, app.memory_mb
+        ))
+        .block(Block::bordered().title("Resources"));
 
         frame.render_widget(name, chunks[0]);
         frame.render_widget(status, chunks[1]);
@@ -268,14 +355,23 @@ impl TuiApp {
     }
 
     fn render_logs(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        let app_name = state.selected_app().map(|a| a.name.clone()).unwrap_or_else(|| "None".to_string());
+        let app_name = state
+            .selected_app()
+            .map(|a| a.name.clone())
+            .unwrap_or_else(|| "None".to_string());
         let header = Paragraph::new(format!("Logs for: {}", app_name))
             .block(Block::bordered().title("Application Logs"));
         frame.render_widget(header, area);
     }
 
     fn render_status_bar(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        let status = if state.is_loading { "Loading..." } else if let Some(ref e) = state.error_message { e.as_str() } else { "Ready" };
+        let status = if state.is_loading {
+            "Loading..."
+        } else if let Some(ref e) = state.error_message {
+            e.as_str()
+        } else {
+            "Ready"
+        };
         let bar = Paragraph::new(status).style(Style::default().fg(Color::White).bg(Color::Blue));
         frame.render_widget(bar, area);
     }

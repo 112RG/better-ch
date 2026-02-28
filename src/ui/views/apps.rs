@@ -1,10 +1,10 @@
 //! Applications list view.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Borders, Paragraph, List, ListItem},
-    Frame,
+    widgets::{Block, List, ListItem, Paragraph},
 };
 
 use crate::state::{AppState, AppStatus};
@@ -33,28 +33,33 @@ fn render_empty(frame: &mut Frame, area: Rect) {
 }
 
 fn render_app_list(frame: &mut Frame, area: Rect, state: &AppState) {
-    let items: Vec<ListItem> = state.applications.iter().enumerate().map(|(i, app)| {
-        let status_color = match app.status {
-            AppStatus::Started => Color::Green,
-            AppStatus::Stopped => Color::Red,
-            AppStatus::Starting | AppStatus::Stopping => Color::Yellow,
-            AppStatus::Failed => Color::LightRed,
-            AppStatus::Undeployed => Color::DarkGray,
-            AppStatus::Unknown => Color::White,
-        };
+    let items: Vec<ListItem> = state
+        .applications
+        .iter()
+        .enumerate()
+        .map(|(i, app)| {
+            let status_color = match app.status {
+                AppStatus::Started => Color::Green,
+                AppStatus::Stopped => Color::Red,
+                AppStatus::Starting | AppStatus::Stopping => Color::Yellow,
+                AppStatus::Failed => Color::LightRed,
+                AppStatus::Undeployed => Color::DarkGray,
+                AppStatus::Unknown => Color::White,
+            };
 
-        let line = format!(
-            "{:4} | {:20} | {:10} | {:12} | CPU: {:5.1}% | RAM: {}MB",
-            i + 1,
-            app.name,
-            format!("{:?}", app.status),
-            format!("{} x {}", app.worker_count, app.worker_type),
-            app.cpu_percent,
-            app.memory_mb
-        );
+            let line = format!(
+                "{:4} | {:20} | {:10} | {:12} | CPU: {:5.1}% | RAM: {}MB",
+                i + 1,
+                app.name,
+                format!("{:?}", app.status),
+                format!("{} x {}", app.worker_count, app.worker_type),
+                app.cpu_percent,
+                app.memory_mb
+            );
 
-        ListItem::new(line).style(Style::default().fg(status_color))
-    }).collect();
+            ListItem::new(line).style(Style::default().fg(status_color))
+        })
+        .collect();
 
     let list = List::new(items)
         .block(Block::bordered().title("Applications"))
@@ -64,9 +69,11 @@ fn render_app_list(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn render_help(frame: &mut Frame, area: Rect) {
-    let paragraph = Paragraph::new("[s] Start | [x] Stop | [r] Restart | [d] Delete | [Enter] Details | [R] Refresh")
-        .block(Block::bordered().title("Actions"))
-        .alignment(ratatui::layout::Alignment::Center);
+    let paragraph = Paragraph::new(
+        "[s] Start | [x] Stop | [r] Restart | [d] Delete | [Enter] Details | [R] Refresh",
+    )
+    .block(Block::bordered().title("Actions"))
+    .alignment(ratatui::layout::Alignment::Center);
 
     frame.render_widget(paragraph, area);
 }
